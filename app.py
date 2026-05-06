@@ -6,6 +6,8 @@ import streamlit as st
 import os
 import io
 from contextlib import redirect_stdout
+from dotenv import load_dotenv
+load_dotenv()
 
 st.set_page_config(page_title="Deep Research Agent", page_icon="🔍", layout="wide")
 
