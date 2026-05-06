@@ -31,7 +31,7 @@ except ImportError:
 import requests
 from bs4 import BeautifulSoup
 
-MODEL_NAME = "llama-3.3-70b-versatile"  # Best free model on Groq
+MODEL_NAME = "llama3-groq-70b-8192-tool-use-preview"  # Best free model on Groq
 
 
 # ============================================================
@@ -207,13 +207,29 @@ def run_research_agent(topic: str, max_iterations: int = 15) -> str:
                 temperature=0.7,
             )
         except Exception as e:
-            print(f"\n⚠️ API error: {str(e)[:100]}, retrying without tools...")
-            response = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=messages,
-                max_tokens=4096,
-                temperature=0.7,
-            )
+            err_str = str(e)
+            print(f"\n⚠️ API error: {err_str[:100]}")
+            if "tool_use_failed" in err_str or "400" in err_str:
+                # Groq had a bad tool call — add a recovery message and retry
+                messages.append({"role": "user", "content": "The last tool call failed. Please continue researching using valid tool calls, or write the final report if you have enough notes."})
+                try:
+                    response = client.chat.completions.create(
+                        model=MODEL_NAME,
+                        messages=messages,
+                        tools=TOOL_DECLARATIONS,
+                        tool_choice="auto",
+                        max_tokens=4096,
+                        temperature=0.7,
+                    )
+                except Exception:
+                    response = client.chat.completions.create(
+                        model=MODEL_NAME,
+                        messages=messages,
+                        max_tokens=4096,
+                        temperature=0.7,
+                    )
+            else:
+                raise
 
         message = response.choices[0].message
         tool_calls = message.tool_calls or []
