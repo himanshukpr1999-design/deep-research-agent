@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSearch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #07070a;
+    --bg-alt: #0c0c12;
+    --fg: #f0f0f5;
+    --fg-mute: #8a8a9b;
+    --fg-dim: #4a4a5a;
+    --line: rgba(255,255,255,0.08);
+    --line-bright: rgba(255,255,255,0.14);
+    --accent: #6366f1;
+    --accent-2: #ec4899;
+    --accent-3: #06b6d4;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Space Grotesk', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    min-height: 100vh;
+    overflow-x: hidden;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+  }
+
+  /* ════════════════════════════════════════════════
+     LIQUID BLOB BACKGROUND (SVG morphing)
+     ════════════════════════════════════════════════ */
+
+  .bg-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .blob {
+    position: absolute;
+    width: 600px;
+    height: 600px;
+    filter: blur(60px);
+    opacity: 0.35;
+    will-change: transform, border-radius;
+  }
+
+  .blob-1 {
+    background: radial-gradient(circle at 30% 30%, var(--accent), transparent 70%);
+    top: -150px;
+    left: -100px;
+    animation: blobMorph 20s ease-in-out infinite, blobDrift1 25s ease-in-out infinite;
+  }
+
+  .blob-2 {
+    background: radial-gradient(circle at 70% 70%, var(--accent-2), transparent 70%);
+    top: 30%;
+    right: -200px;
+    animation: blobMorph 25s ease-in-out infinite reverse, blobDrift2 30s ease-in-out infinite;
+  }
+
+  .blob-3 {
+    background: radial-gradient(circle at 50% 50%, var(--accent-3), transparent 70%);
+    bottom: -200px;
+    left: 30%;
+    animation: blobMorph 22s ease-in-out infinite, blobDrift3 28s ease-in-out infinite;
+  }
+
+  @keyframes blobMorph {
+    0%, 100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
+    25% { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
+    50% { border-radius: 50% 60% 30% 60% / 30% 60% 70% 40%; }
+    75% { border-radius: 60% 40% 60% 30% / 70% 30% 50% 60%; }
+  }
+
+  @keyframes blobDrift1 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(80px, 60px) scale(1.1); }
+    66% { transform: translate(-40px, 100px) scale(0.95); }
+  }
+
+  @keyframes blobDrift2 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(-100px, -80px) scale(1.05); }
+    66% { transform: translate(60px, -120px) scale(1.15); }
+  }
+
+  @keyframes blobDrift3 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(120px, -60px) scale(0.9); }
+    66% { transform: translate(-80px, -100px) scale(1.1); }
+  }
+
+  /* Subtle grid */
+  .grid-bg {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(0deg, rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+    background-size: 80px 80px;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+  }
+
+  /* Noise grain */
+  .grain {
+    position: absolute;
+    inset: 0;
+    opacity: 0.05;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence baseFrequency='0.9' /></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.5'/></svg>");
+  }
+
+  /* ════════════════════════════════════════════════
+     LAYOUT
+     ════════════════════════════════════════════════ */
+
+  .page {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ════════════════════════════════════════════════
+     NAV
+     ════════════════════════════════════════════════ */
+
+  .nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.75rem 2.5rem;
+    max-width: 1400px;
+    margin: 0 auto;
+    animation: fadeDown 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    font-weight: 600;
+    font-size: 1.05rem;
+    letter-spacing: -0.02em;
+  }
+
+  .brand-mark {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 700;
+    font-size: 14px;
+    box-shadow: 0 0 24px rgba(99, 102, 241, 0.4);
+  }
+
+  .nav-meta {
+    display: flex;
+    gap: 1.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--fg-mute);
+    align-items: center;
+  }
+
+  .live-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 8px #22c55e;
+    margin-right: 0.5rem;
+    animation: livePulse 2s ease-in-out infinite;
+  }
+
+  @keyframes livePulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ════════════════════════════════════════════════
+     HERO
+     ════════════════════════════════════════════════ */
+
+  .hero {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 4rem 2.5rem 5rem;
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 4rem;
+    align-items: center;
+    min-height: 80vh;
+  }
+
+  .hero-content {
+    animation: fadeRight 1s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes fadeRight {
+    from { opacity: 0; transform: translateX(-20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--fg-mute);
+    margin-bottom: 1.5rem;
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--line-bright);
+    border-radius: 100px;
+    background: rgba(255,255,255,0.02);
+    backdrop-filter: blur(10px);
+  }
+
+  .eyebrow-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: livePulse 2s infinite;
+  }
+
+  .headline {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(2.5rem, 5.5vw, 4.5rem);
+    font-weight: 600;
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    margin-bottom: 1.5rem;
+    color: var(--fg);
+  }
+
+  .headline-line {
+    display: block;
+    overflow: hidden;
+  }
+
+  .headline-text {
+    display: inline-block;
+    animation: lineSlide 1s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes lineSlide {
+    from { transform: translateY(110%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  .headline-line:nth-child(2) .headline-text { animation-delay: 0.1s; animation-fill-mode: backwards; }
+  .headline-line:nth-child(3) .headline-text { animation-delay: 0.2s; animation-fill-mode: backwards; }
+
+  .gradient-text {
+    background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 50%, var(--accent-3) 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: gradShift 8s linear infinite;
+  }
+
+  @keyframes gradShift {
+    0% { background-position: 0% center; }
+    100% { background-position: 200% center; }
+  }
+
+  .subhead {
+    font-size: 1.05rem;
+    color: var(--fg-mute);
+    line-height: 1.6;
+    margin-bottom: 2.5rem;
+    max-width: 480px;
+    font-weight: 400;
+    animation: fadeUp 1s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ════════════════════════════════════════════════
+     3D BLOB CONTAINER
+     ════════════════════════════════════════════════ */
+
+  .hero-3d {
+    position: relative;
+    height: 500px;
+    animation: fadeIn 1.5s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  #blob-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ════════════════════════════════════════════════
+     SEARCH (positioned below the grid)
+     ════════════════════════════════════════════════ */
+
+  .search-section {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 2.5rem 4rem;
+    animation: fadeUp 1s cubic-bezier(0.16, 1, 0.3, 1) 0.6s both;
+  }
+
+  .search-wrap {
+    position: relative;
+    margin-bottom: 1.5rem;
+  }
+
+  .search-glow {
+    position: absolute;
+    inset: -1px;
+    border-radius: 100px;
+    background: linear-gradient(120deg, var(--accent), var(--accent-2), var(--accent-3));
+    opacity: 0;
+    filter: blur(8px);
+    transition: opacity 0.4s;
+    z-index: 0;
+  }
+
+  .search-wrap:focus-within .search-glow {
+    opacity: 0.6;
+    animation: rotateGlow 4s linear infinite;
+  }
+
+  @keyframes rotateGlow {
+    0% { background: linear-gradient(0deg, var(--accent), var(--accent-2), var(--accent-3)); }
+    25% { background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-3)); }
+    50% { background: linear-gradient(180deg, var(--accent), var(--accent-2), var(--accent-3)); }
+    75% { background: linear-gradient(270deg, var(--accent), var(--accent-2), var(--accent-3)); }
+    100% { background: linear-gradient(360deg, var(--accent), var(--accent-2), var(--accent-3)); }
+  }
+
+  .search-box {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    background: rgba(12, 12, 18, 0.85);
+    border: 1px solid var(--line-bright);
+    border-radius: 100px;
+    padding: 1.2rem 9rem 1.2rem 1.75rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1rem;
+    color: var(--fg);
+    outline: none;
+    backdrop-filter: blur(20px);
+    transition: border-color 0.3s, background 0.3s;
+    font-weight: 400;
+  }
+
+  .search-box::placeholder {
+    color: var(--fg-dim);
+  }
+
+  .search-btn {
+    position: absolute;
+    z-index: 2;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--fg);
+    border: none;
+    border-radius: 100px;
+    padding: 0.75rem 1.5rem;
+    color: var(--bg);
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    letter-spacing: -0.01em;
+  }
+
+  .search-btn:hover:not(:disabled) {
+    background: linear-gradient(120deg, var(--accent), var(--accent-2));
+    color: white;
+    padding-right: 1.7rem;
+  }
+
+  .search-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .arrow-icon {
+    display: inline-block;
+    transition: transform 0.3s;
+  }
+
+  .search-btn:hover .arrow-icon {
+    transform: translateX(3px);
+  }
+
+  /* ════════════════════════════════════════════════
+     CHIPS
+     ════════════════════════════════════════════════ */
+
+  .chips-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+  }
+
+  .chip-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    width: 100%;
+    text-align: center;
+    margin-bottom: 0.75rem;
+  }
+
+  .chip {
+    font-size: 0.85rem;
+    padding: 0.5rem 1.1rem;
+    border-radius: 100px;
+    border: 1px solid var(--line-bright);
+    background: rgba(255,255,255,0.02);
+    color: var(--fg-mute);
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    backdrop-filter: blur(10px);
+    font-weight: 400;
+  }
+
+  .chip:hover {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.08);
+    color: var(--fg);
+    transform: translateY(-2px);
+  }
+
+  /* ════════════════════════════════════════════════
+     RESEARCH PANEL
+     ════════════════════════════════════════════════ */
+
+  .panel {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 2.5rem 6rem;
+    display: none;
+  }
+
+  .panel.visible {
+    display: block;
+    animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .panel-header {
+    margin-bottom: 2rem;
+  }
+
+  .panel-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 0.3rem;
+    letter-spacing: -0.02em;
+  }
+
+  .panel-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  /* Steps */
+  .steps {
+    display: flex;
+    align-items: center;
+    margin-bottom: 2rem;
+    padding: 1.5rem 1.75rem;
+    background: rgba(12, 12, 18, 0.6);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    backdrop-filter: blur(20px);
+    gap: 0.5rem;
+  }
+
+  .step-item {
+    flex: 1;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--fg-dim);
+    transition: color 0.4s;
+  }
+
+  .step-dot {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--line-bright);
+    margin: 0 auto 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.4s;
+    color: var(--fg-dim);
+  }
+
+  .step-item.active { color: var(--accent); }
+  .step-item.active .step-dot {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent);
+    animation: stepPulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes stepPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0); }
+  }
+
+  .step-item.done { color: var(--fg-mute); }
+  .step-item.done .step-dot {
+    border-color: var(--accent-2);
+    background: rgba(236, 72, 153, 0.15);
+    color: var(--accent-2);
+  }
+
+  .step-line {
+    flex: 0.3;
+    height: 1px;
+    background: var(--line-bright);
+    transition: background 0.4s;
+  }
+  .step-line.done { background: var(--accent-2); }
+
+  /* Stats */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .stat {
+    background: rgba(12, 12, 18, 0.6);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.2rem 1.1rem;
+    text-align: left;
+    backdrop-filter: blur(20px);
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat:hover {
+    border-color: var(--line-bright);
+    transform: translateY(-2px);
+  }
+
+  .stat::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 3px;
+    height: 0;
+    background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    transition: height 0.4s;
+  }
+
+  .stat:hover::before {
+    height: 100%;
+  }
+
+  .stat-num {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 2.3rem;
+    font-weight: 600;
+    color: var(--fg);
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+
+  .stat-lbl {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-top: 0.6rem;
+  }
+
+  /* Terminal */
+  .terminal {
+    background: #050507;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+  }
+
+  .term-bar {
+    background: rgba(255,255,255,0.02);
+    padding: 0.7rem 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .tdot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+  }
+  .tdot-r { background: #ff5f57; }
+  .tdot-y { background: #ffbd2e; }
+  .tdot-g { background: #28ca41; }
+
+  .term-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--fg-dim);
+    margin-left: 0.5rem;
+    letter-spacing: 0.05em;
+  }
+
+  .term-body {
+    padding: 1.1rem 1.3rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    min-height: 180px;
+    max-height: 240px;
+    overflow-y: auto;
+    line-height: 1.7;
+    color: var(--fg-mute);
+  }
+
+  .term-body div {
+    animation: termSlide 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes termSlide {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .t-search { color: var(--accent-3); }
+  .t-read { color: #6ee7b7; }
+  .t-note { color: #fcd34d; }
+  .t-think { color: var(--fg-dim); }
+  .t-done { color: var(--accent-2); }
+  .t-err { color: #fca5a5; }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 1.5rem;
+  }
+
+  .tab-btn {
+    padding: 0.85rem 1.2rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--fg-dim);
+    cursor: pointer;
+    border: none;
+    background: none;
+    border-bottom: 1px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.2s;
+    letter-spacing: -0.005em;
+  }
+
+  .tab-btn:hover { color: var(--fg-mute); }
+  .tab-btn.active {
+    color: var(--fg);
+    border-bottom-color: var(--accent);
+  }
+
+  .tab-content { display: none; }
+  .tab-content.active {
+    display: block;
+    animation: fadeUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Report */
+  .report {
+    background: rgba(12, 12, 18, 0.5);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 2.5rem 3rem;
+    line-height: 1.75;
+    font-size: 0.95rem;
+    color: var(--fg-mute);
+    backdrop-filter: blur(20px);
+  }
+
+  .report h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 1rem;
+    letter-spacing: -0.03em;
+  }
+
+  .report h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--fg);
+    margin: 2rem 0 0.75rem;
+    letter-spacing: -0.02em;
+    padding-left: 0.85rem;
+    border-left: 2px solid var(--accent);
+  }
+
+  .report h3 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--fg);
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .report p { margin-bottom: 0.75rem; }
+  .report ul { padding-left: 1.25rem; }
+  .report li { margin-bottom: 0.4rem; }
+  .report strong { color: var(--fg); font-weight: 600; }
+  .report a { color: var(--accent-3); }
+  .report hr { border: none; border-top: 1px solid var(--line); margin: 2rem 0; }
+
+  /* Source cards */
+  .source {
+    background: rgba(12, 12, 18, 0.5);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.3rem 1.5rem;
+    margin-bottom: 0.75rem;
+    backdrop-filter: blur(20px);
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .source::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 2px;
+    height: 0;
+    background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    transition: height 0.4s, top 0.4s;
+  }
+
+  .source:hover {
+    border-color: var(--line-bright);
+    background: rgba(12, 12, 18, 0.75);
+  }
+
+  .source:hover::before {
+    height: 100%;
+    top: 0;
+  }
+
+  .src-url {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--accent-3);
+    margin-bottom: 0.3rem;
+  }
+
+  .src-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 0.4rem;
+    letter-spacing: -0.01em;
+  }
+
+  .src-relevance {
+    font-size: 0.85rem;
+    color: var(--fg-mute);
+    margin-bottom: 0.7rem;
+    line-height: 1.5;
+  }
+
+  .src-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .fact-pill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    padding: 3px 10px;
+    border-radius: 100px;
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.18);
+    color: var(--accent);
+  }
+
+  .dl-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+    padding: 0.7rem 1.4rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--line-bright);
+    border-radius: 100px;
+    color: var(--fg);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.25s;
+  }
+
+  .dl-btn:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: var(--accent);
+  }
+
+  .empty {
+    text-align: center;
+    color: var(--fg-dim);
+    padding: 3rem 1rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line-bright); border-radius: 100px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
+
+  /* Responsive */
+  @media (max-width: 968px) {
+    .hero {
+      grid-template-columns: 1fr;
+      text-align: center;
+      gap: 2rem;
+      padding: 2rem 1.5rem 3rem;
+    }
+    .hero-3d { height: 300px; order: -1; }
+    .subhead { margin-left: auto; margin-right: auto; }
+    .nav { padding: 1.25rem 1.5rem; }
+    .nav-meta { display: none; }
+    .panel { padding: 0 1.5rem 4rem; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .report { padding: 1.5rem; }
+    .search-section { padding: 0 1.5rem 4rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ════ ANIMATED BACKGROUND ════ -->
+<div class="bg-layer">
+  <div class="grid-bg"></div>
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+  <div class="grain"></div>
+</div>
+
+<div class="page">
+
+  <!-- ════ NAV ════ -->
+  <nav class="nav">
+    <div class="brand">
+      <div class="brand-mark">◆</div>
+      <span>DeepSearch</span>
+    </div>
+    <div class="nav-meta">
+      <span><span class="live-dot"></span>agent online</span>
+      <span style="color: var(--fg-dim)">v3.0 / claude</span>
+    </div>
+  </nav>
+
+  <!-- ════ HERO ════ -->
+  <section class="hero">
+    <div class="hero-content">
+      <div class="eyebrow">
+        <span class="eyebrow-dot"></span>
+        research agent · multi-source · synthesis
+      </div>
+
+      <h1 class="headline">
+        <span class="headline-line"><span class="headline-text">Research</span></span>
+        <span class="headline-line"><span class="headline-text">that <span class="gradient-text">actually</span></span></span>
+        <span class="headline-line"><span class="headline-text">thinks for you.</span></span>
+      </h1>
+
+      <p class="subhead">
+        Not a summarizer. A planning agent that searches, reads, reflects, and writes a comprehensive report — citing every source.
+      </p>
+    </div>
+
+    <div class="hero-3d">
+      <canvas id="blob-canvas"></canvas>
+    </div>
+  </section>
+
+  <!-- ════ SEARCH ════ -->
+  <section class="search-section">
+    <div class="search-wrap">
+      <div class="search-glow"></div>
+      <input class="search-box" id="searchInput" type="text" placeholder="What do you want to research?"/>
+      <button class="search-btn" id="searchBtn" onclick="startResearch()">
+        Begin <span class="arrow-icon">→</span>
+      </button>
+    </div>
+
+    <div class="chips-row">
+      <div class="chip-label">try one</div>
+      <div class="chip" onclick="setTopic('Future of AI agents in 2026')">Future of AI agents</div>
+      <div class="chip" onclick="setTopic('Real estate investing strategies')">Real estate investing</div>
+      <div class="chip" onclick="setTopic('Quantum computing 2026 breakthroughs')">Quantum computing</div>
+      <div class="chip" onclick="setTopic('Vedic astrology Jyotish principles')">Vedic astrology</div>
+      <div class="chip" onclick="setTopic('Llama vs GPT vs Claude 2026')">LLM comparison</div>
+    </div>
+  </section>
+
+  <!-- ════ RESEARCH PANEL ════ -->
+  <section class="panel" id="researchPanel">
+    <div class="panel-header">
+      <div class="panel-title">Live Research</div>
+      <div class="panel-sub">/ agent.run()</div>
+    </div>
+
+    <div class="steps" id="stepsWrap"></div>
+
+    <div class="stats">
+      <div class="stat"><div class="stat-num" id="statSources">0</div><div class="stat-lbl">Sources</div></div>
+      <div class="stat"><div class="stat-num" id="statSearches">0</div><div class="stat-lbl">Searches</div></div>
+      <div class="stat"><div class="stat-num" id="statPages">0</div><div class="stat-lbl">Pages read</div></div>
+      <div class="stat"><div class="stat-num" id="statTime">0s</div><div class="stat-lbl">Elapsed</div></div>
+    </div>
+
+    <div class="terminal">
+      <div class="term-bar">
+        <div class="tdot tdot-r"></div>
+        <div class="tdot tdot-y"></div>
+        <div class="tdot tdot-g"></div>
+        <div class="term-title">agent.log — live trace</div>
+      </div>
+      <div class="term-body" id="terminalBody"></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('report', this)">Report</button>
+      <button class="tab-btn" onclick="switchTab('sources', this)">Sources</button>
+      <button class="tab-btn" onclick="switchTab('trace', this)">Raw trace</button>
+    </div>
+
+    <div class="tab-content active" id="tab-report">
+      <div class="report" id="reportContent">
+        <div class="empty">Report appears once research completes</div>
+      </div>
+      <button class="dl-btn" id="dlBtn" onclick="downloadReport()" style="display:none">↓ Download markdown</button>
+    </div>
+
+    <div class="tab-content" id="tab-sources">
+      <div id="sourcesContent"><div class="empty">Sources appear here</div></div>
+    </div>
+
+    <div class="tab-content" id="tab-trace">
+      <pre id="traceContent" style="background:#050507;border:1px solid var(--line);border-radius:14px;padding:1.5rem;font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--fg-mute);overflow-x:auto;line-height:1.7;white-space:pre-wrap;"></pre>
+    </div>
+  </section>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+//  THREE.JS 3D BLOB
+// ═══════════════════════════════════════════════════
+function init3DBlob() {
+  const canvas = document.getElementById('blob-canvas');
+  const container = canvas.parentElement;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+  camera.position.z = 5;
+
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  // Geometry — high-poly icosahedron for smooth deformation
+  const geometry = new THREE.IcosahedronGeometry(1.5, 64);
+
+  // Custom shader material — vertex displacement + iridescent fragment color
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uHover: { value: 0 },
+      uColorA: { value: new THREE.Color('#6366f1') },
+      uColorB: { value: new THREE.Color('#ec4899') },
+      uColorC: { value: new THREE.Color('#06b6d4') },
+    },
+    vertexShader: `
+      uniform float uTime;
+      uniform float uHover;
+      varying vec3 vNormal;
+      varying vec3 vPosition;
+
+      // 3D simplex noise (Stefan Gustavson)
+      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+      vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+      float snoise(vec3 v) {
+        const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+        const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+        vec3 i = floor(v + dot(v, C.yyy));
+        vec3 x0 = v - i + dot(i, C.xxx);
+        vec3 g = step(x0.yzx, x0.xyz);
+        vec3 l = 1.0 - g;
+        vec3 i1 = min(g.xyz, l.zxy);
+        vec3 i2 = max(g.xyz, l.zxy);
+        vec3 x1 = x0 - i1 + C.xxx;
+        vec3 x2 = x0 - i2 + C.yyy;
+        vec3 x3 = x0 - D.yyy;
+        i = mod289(i);
+        vec4 p = permute(permute(permute(
+                    i.z + vec4(0.0, i1.z, i2.z, 1.0))
+                  + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+                  + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+        float n_ = 0.142857142857;
+        vec3 ns = n_ * D.wyz - D.xzx;
+        vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+        vec4 x_ = floor(j * ns.z);
+        vec4 y_ = floor(j - 7.0 * x_);
+        vec4 x = x_ *ns.x + ns.yyyy;
+        vec4 y = y_ *ns.x + ns.yyyy;
+        vec4 h = 1.0 - abs(x) - abs(y);
+        vec4 b0 = vec4(x.xy, y.xy);
+        vec4 b1 = vec4(x.zw, y.zw);
+        vec4 s0 = floor(b0)*2.0 + 1.0;
+        vec4 s1 = floor(b1)*2.0 + 1.0;
+        vec4 sh = -step(h, vec4(0.0));
+        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+        vec3 p0 = vec3(a0.xy, h.x);
+        vec3 p1 = vec3(a0.zw, h.y);
+        vec3 p2 = vec3(a1.xy, h.z);
+        vec3 p3 = vec3(a1.zw, h.w);
+        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+        p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+        vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+        m = m * m;
+        return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+      }
+
+      void main() {
+        vNormal = normal;
+        float t = uTime * 0.4;
+        float noise = snoise(position * 1.2 + vec3(t)) * 0.35;
+        noise += snoise(position * 2.5 + vec3(t * 1.5)) * 0.15;
+        vec3 newPos = position + normal * (noise + uHover * 0.2);
+        vPosition = newPos;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(newPos, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec3 uColorA;
+      uniform vec3 uColorB;
+      uniform vec3 uColorC;
+      varying vec3 vNormal;
+      varying vec3 vPosition;
+
+      void main() {
+        vec3 viewDir = normalize(cameraPosition - vPosition);
+        float fresnel = pow(1.0 - max(dot(vNormal, viewDir), 0.0), 2.0);
+
+        // 3-color gradient based on position + time
+        float mixFactor1 = sin(vPosition.y * 2.0 + uTime * 0.5) * 0.5 + 0.5;
+        float mixFactor2 = sin(vPosition.x * 2.0 + uTime * 0.3) * 0.5 + 0.5;
+
+        vec3 color = mix(uColorA, uColorB, mixFactor1);
+        color = mix(color, uColorC, mixFactor2 * 0.5);
+
+        // Add iridescent fresnel highlight
+        color += fresnel * 0.6;
+
+        gl_FragColor = vec4(color, 0.95);
+      }
+    `,
+    transparent: true,
+  });
+
+  const blob = new THREE.Mesh(geometry, material);
+  scene.add(blob);
+
+  // Mouse interaction
+  let mouseX = 0, mouseY = 0;
+  let targetHover = 0;
+  container.addEventListener('mousemove', (e) => {
+    const rect = container.getBoundingClientRect();
+    mouseX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    targetHover = 1;
+  });
+  container.addEventListener('mouseleave', () => { targetHover = 0; });
+
+  const clock = new THREE.Clock();
+  function animate() {
+    requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+    material.uniforms.uTime.value = t;
+    material.uniforms.uHover.value += (targetHover - material.uniforms.uHover.value) * 0.05;
+
+    blob.rotation.y = t * 0.15 + mouseX * 0.3;
+    blob.rotation.x = mouseY * 0.2;
+
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // Resize
+  window.addEventListener('resize', () => {
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(container.clientWidth, container.clientHeight);
+  });
+}
+
+// Init blob after DOM ready
+if (typeof THREE !== 'undefined') {
+  init3DBlob();
+}
+
+// ═══════════════════════════════════════════════════
+//  RESEARCH AGENT
+// ═══════════════════════════════════════════════════
+let notes = [];
+let traceLog = '';
+let reportText = '';
+let startTime = 0;
+let timerInterval = null;
+let searches = 0, pages = 0;
+
+const STEPS = ['Plan', 'Search', 'Read', 'Note', 'Reflect', 'Synthesize'];
+
+function buildSteps(active) {
+  let html = '';
+  STEPS.forEach((s, i) => {
+    const done = i < active, act = i === active;
+    html += `<div class="step-item ${done ? 'done' : act ? 'active' : ''}">
+      <div class="step-dot">${done ? '✓' : i+1}</div>${s}
+    </div>`;
+    if (i < STEPS.length - 1) html += `<div class="step-line ${i < active ? 'done' : ''}"></div>`;
+  });
+  document.getElementById('stepsWrap').innerHTML = html;
+}
+
+function log(text, cls) {
+  const tb = document.getElementById('terminalBody');
+  const line = document.createElement('div');
+  line.className = cls || 't-think';
+  line.textContent = '› ' + text;
+  tb.appendChild(line);
+  tb.scrollTop = tb.scrollHeight;
+  traceLog += text + '\n';
+  document.getElementById('traceContent').textContent = traceLog;
+}
+
+function updateStats() {
+  document.getElementById('statSources').textContent = notes.length;
+  document.getElementById('statSearches').textContent = searches;
+  document.getElementById('statPages').textContent = pages;
+}
+
+function setTopic(t) {
+  const inp = document.getElementById('searchInput');
+  inp.value = t;
+  inp.focus();
+}
+
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
+
+function renderSources() {
+  if (!notes.length) return;
+  const html = notes.map((n, i) => `
+    <div class="source">
+      <div class="src-url">${escHtml(n.source || '').substring(0, 90)}</div>
+      <div class="src-title">Source ${String(i+1).padStart(2, '0')}</div>
+      <div class="src-relevance">${escHtml(n.relevance || '')}</div>
+      <div class="src-facts">${(n.key_facts||[]).slice(0,5).map(f =>
+        `<span class="fact-pill">${escHtml(f.substring(0,60))}</span>`).join('')}
+      </div>
+    </div>`).join('');
+  document.getElementById('sourcesContent').innerHTML = html;
+}
+
+function renderReport(md) {
+  let html = md
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank">$1</a>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>')
+    .replace(/^---$/gm, '<hr>')
+    .split('\n\n').map(p => {
+      p = p.trim();
+      if (!p) return '';
+      if (/^<[h|l|u]/.test(p)) return p;
+      return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
+    }).join('');
+  document.getElementById('reportContent').innerHTML = html;
+  reportText = md;
+  document.getElementById('dlBtn').style.display = 'inline-flex';
+}
+
+function downloadReport() {
+  const blob = new Blob([reportText], {type: 'text/markdown'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'research_report.md';
+  a.click();
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Claude API
+async function callClaude(messages, tools, system) {
+  const body = { model: 'claude-haiku-4-5-20251001', max_tokens: 2048, messages };
+  if (system) body.system = system;
+  if (tools) body.tools = tools;
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error.message);
+  return data;
+}
+
+async function doSearch(query) {
+  searches++;
+  updateStats();
+  const data = await callClaude(
+    [{ role: 'user', content: `Search the web for: "${query}". Return ONLY a JSON array of up to 5 objects with keys: title, url, snippet. No markdown.` }],
+    [{ type: 'web_search_20250305', name: 'web_search' }]
+  );
+  return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
+}
+
+async function doRead(url) {
+  pages++;
+  updateStats();
+  const data = await callClaude(
+    [{ role: 'user', content: `Search for and extract detailed content from: ${url}\n\nGet key facts, statistics, quotes, insights. Be specific and detailed.` }],
+    [{ type: 'web_search_20250305', name: 'web_search' }]
+  );
+  return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('') || 'Could not read page.';
+}
+
+async function startResearch() {
+  const topic = document.getElementById('searchInput').value.trim();
+  if (!topic) return;
+
+  notes = []; traceLog = ''; reportText = ''; searches = 0; pages = 0;
+  document.getElementById('terminalBody').innerHTML = '';
+  document.getElementById('reportContent').innerHTML = '<div class="empty">Researching…</div>';
+  document.getElementById('sourcesContent').innerHTML = '';
+  document.getElementById('traceContent').textContent = '';
+  document.getElementById('dlBtn').style.display = 'none';
+  document.getElementById('researchPanel').classList.add('visible');
+  document.getElementById('searchBtn').disabled = true;
+
+  document.getElementById('researchPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  buildSteps(0);
+  updateStats();
+
+  startTime = Date.now();
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    document.getElementById('statTime').textContent = Math.floor((Date.now()-startTime)/1000) + 's';
+  }, 1000);
+
+  log('initializing research: ' + topic, 't-think');
+
+  const system = `You are a deep research agent. Research topics thoroughly using tools and write a comprehensive final report.
+
+PROCESS (follow strictly):
+1. PLAN what to research
+2. SEARCH with search_web (be specific, include year)
+3. READ promising URLs with read_page
+4. NOTE key facts with take_notes after EVERY read
+5. REFLECT after 3 sources — what is missing?
+6. SEARCH MORE to fill gaps
+7. SYNTHESIZE when you have 5+ noted sources
+
+Never write the final report until take_notes has been called at least 5 times.
+
+Final report format:
+# [Topic] - Research Report
+## Executive Summary
+## Key Findings
+## Detailed Analysis
+## Implications & Outlook
+## Sources`;
+
+  const tools = [
+    { name: 'search_web', description: 'Search the web for sources.', input_schema: { type: 'object', properties: { query: { type: 'string' }, max_results: { type: 'integer' } }, required: ['query'] } },
+    { name: 'read_page', description: 'Read a URL.', input_schema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } },
+    { name: 'take_notes', description: 'Save notes from a source.', input_schema: { type: 'object', properties: { source: { type: 'string' }, key_facts: { type: 'array', items: { type: 'string' } }, relevance: { type: 'string' } }, required: ['source', 'key_facts', 'relevance'] } }
+  ];
+
+  const messages = [{ role: 'user', content: 'Research this topic thoroughly: ' + topic }];
+  let finalReport = null;
+
+  try {
+    for (let iter = 0; iter < 25 && !finalReport; iter++) {
+      const data = await callClaude(messages, tools, system);
+      const content = data.content || [];
+      messages.push({ role: 'assistant', content });
+
+      const toolUses = content.filter(b => b.type === 'tool_use');
+      const texts = content.filter(b => b.type === 'text');
+
+      for (const t of texts) {
+        if (t.text && t.text.trim()) {
+          log('thinking: ' + t.text.trim().substring(0, 100), 't-think');
+        }
+      }
+
+      if (!toolUses.length) {
+        finalReport = texts.map(b => b.text||'').join('\n').trim();
+        break;
+      }
+
+      const results = [];
+      for (const tu of toolUses) {
+        const { name, input, id } = tu;
+        let result = '';
+        if (name === 'search_web') {
+          log('search_web("' + (input.query||'').substring(0,50) + '")', 't-search');
+          buildSteps(1);
+          result = await doSearch(input.query);
+        } else if (name === 'read_page') {
+          log('read_page("' + (input.url||'').substring(0,55) + '")', 't-read');
+          buildSteps(2);
+          result = await doRead(input.url);
+        } else if (name === 'take_notes') {
+          notes.push({ source: input.source||'', key_facts: input.key_facts||[], relevance: input.relevance||'' });
+          result = `Notes saved (${(input.key_facts||[]).length} facts). Total: ${notes.length} sources.`;
+          log('take_notes() → ' + notes.length + ' sources saved', 't-note');
+          buildSteps(3);
+          updateStats();
+          renderSources();
+        }
+        results.push({ type: 'tool_result', tool_use_id: id, content: result });
+      }
+
+      messages.push({ role: 'user', content: results });
+      if (notes.length >= 4) buildSteps(4);
+    }
+
+    clearInterval(timerInterval);
+    document.getElementById('statTime').textContent = Math.floor((Date.now()-startTime)/1000) + 's';
+
+    if (finalReport) {
+      buildSteps(6);
+      log('done. report ready.', 't-done');
+      renderReport(finalReport);
+      renderSources();
+    } else {
+      log('loop ended. check report tab.', 't-err');
+    }
+  } catch (err) {
+    clearInterval(timerInterval);
+    log('error: ' + err.message, 't-err');
+  }
+
+  document.getElementById('searchBtn').disabled = false;
+}
+
+document.getElementById('searchInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') startResearch();
+});
+</script>
+
+</body>
+</html>
