@@ -197,14 +197,23 @@ def run_research_agent(topic: str, max_iterations: int = 15) -> str:
     print(f"\n🔍 Starting research on: {topic}\n" + "=" * 60)
 
     for iteration in range(max_iterations):
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            tools=TOOL_DECLARATIONS,
-            tool_choice="auto",
-            max_tokens=4096,
-            temperature=0.7,
-        )
+        try:
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                tools=TOOL_DECLARATIONS,
+                tool_choice="auto",
+                max_tokens=4096,
+                temperature=0.7,
+            )
+        except Exception as e:
+            print(f"\n⚠️ API error: {str(e)[:100]}, retrying without tools...")
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                max_tokens=4096,
+                temperature=0.7,
+            )
 
         message = response.choices[0].message
         tool_calls = message.tool_calls or []
