@@ -11,6 +11,13 @@ Architecture: ReAct loop (Reason + Act) with 3 tools
 Pattern: Plan → Act → Observe → Reflect → Repeat → Synthesize
 """
 
+import socket
+old_getaddrinfo = socket.getaddrinfo
+def new_getaddrinfo(*args, **kwargs):
+    responses = old_getaddrinfo(*args, **kwargs)
+    return [r for r in responses if r[0] == socket.AF_INET]
+socket.getaddrinfo = new_getaddrinfo
+
 import os
 import json
 from datetime import datetime
