@@ -14,6 +14,8 @@ Pattern: Plan → Act → Observe → Reflect → Repeat → Synthesize
 import os
 import json
 from datetime import datetime
+from dotenv import load_dotenv
+load_dotenv()  # loads GROQ_API_KEY from .env file
 from groq import Groq
 try:
     from ddgs import DDGS
@@ -43,7 +45,7 @@ def search_web(query: str, max_results: int = 5) -> str:
         return json.dumps([{"error": f"Search failed: {str(e)}"}])
 
 
-def read_page(url: str, max_chars: int = 4000) -> str:
+def read_page(url: str, max_chars: int = 1500) -> str:
     """Fetch and extract text content from a webpage."""
     try:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; ResearchAgent/1.0)"}
@@ -228,12 +230,17 @@ def run_research_agent(topic: str, max_iterations: int = 15) -> str:
         for tc in tool_calls:
             fn_name = tc.function.name
             fn_args = json.loads(tc.function.arguments or "{}")
+            # Cap max_chars to stay within Groq free tier token limits
+            if "max_chars" in fn_args:
+                fn_args["max_chars"] = min(fn_args["max_chars"], 1500)
+            if "max_results" in fn_args:
+                fn_args["max_results"] = min(fn_args["max_results"], 5)
             print(f"\n🔧 Tool: {fn_name}({json.dumps({k: str(v)[:50] for k, v in fn_args.items()})})")
 
             if fn_name in TOOL_FUNCTIONS:
                 try:
                     result = TOOL_FUNCTIONS[fn_name](**fn_args)
-                    result_str = str(result)[:8000]
+                    result_str = str(result)[:3000]
                 except Exception as e:
                     result_str = f"Tool error: {str(e)}"
             else:
