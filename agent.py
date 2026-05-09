@@ -1,16 +1,16 @@
 """
-Deep Research Agent — Groq Edition
--------------------------------------
-A production-grade AI research agent powered by Groq (free tier).
+Deep Research Agent — NVIDIA NIM Edition
+-----------------------------------------
+Uses NVIDIA's free hosted NIM endpoint with Llama 3.3 70B.
+OpenAI-compatible API — same tool-calling structure as before.
 
 Architecture: ReAct loop (Reason + Act) with 3 tools
-  - search_web: finds relevant sources
-  - read_page: extracts content from a URL
+  - search_web: finds relevant sources (DuckDuckGo)
+  - read_page: extracts content from a URL (BeautifulSoup)
   - take_notes: structured note-taking for synthesis
-
-Pattern: Plan → Act → Observe → Reflect → Repeat → Synthesize
 """
 
+# Force IPv4 to avoid Windows DNS quirks
 import socket
 old_getaddrinfo = socket.getaddrinfo
 def new_getaddrinfo(*args, **kwargs):
@@ -22,8 +22,10 @@ import os
 import json
 from datetime import datetime
 from dotenv import load_dotenv
-load_dotenv()  # loads GROQ_API_KEY from .env file
-from groq import Groq
+load_dotenv()
+
+from openai import OpenAI
+
 try:
     from ddgs import DDGS
 except ImportError:
@@ -31,7 +33,9 @@ except ImportError:
 import requests
 from bs4 import BeautifulSoup
 
-MODEL_NAME = "llama3-groq-70b-8192-tool-use-preview"  # Best free model on Groq
+# NVIDIA NIM — OpenAI-compatible endpoint
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+MODEL_NAME = "meta/llama-3.3-70b-instruct"
 
 
 # ============================================================
@@ -39,7 +43,6 @@ MODEL_NAME = "llama3-groq-70b-8192-tool-use-preview"  # Best free model on Groq
 # ============================================================
 
 def search_web(query: str, max_results: int = 5) -> str:
-    """Search the web using DuckDuckGo."""
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=max_results))
@@ -53,7 +56,6 @@ def search_web(query: str, max_results: int = 5) -> str:
 
 
 def read_page(url: str, max_chars: int = 1500) -> str:
-    """Fetch and extract text content from a webpage."""
     try:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; ResearchAgent/1.0)"}
         response = requests.get(url, headers=headers, timeout=10)
@@ -72,7 +74,6 @@ notes_storage = []
 
 
 def take_notes(source: str, key_facts: list, relevance: str) -> str:
-    """Store structured notes from a source for the final report."""
     notes_storage.append({
         "source": source,
         "key_facts": list(key_facts),
@@ -83,7 +84,7 @@ def take_notes(source: str, key_facts: list, relevance: str) -> str:
 
 
 # ============================================================
-# TOOL DECLARATIONS — OpenAI-compatible schema (Groq uses this)
+# TOOL DECLARATIONS — OpenAI/NVIDIA NIM schema
 # ============================================================
 
 TOOL_DECLARATIONS = [
@@ -182,19 +183,30 @@ Final report format:
 """
 
 
-def run_research_agent(topic: str, max_iterations: int = 15) -> str:
-    """Run the agent loop. Returns the final research report."""
+def run_research_agent(topic: str, max_iterations: int = 15, on_event=None) -> str:
+    """
+    Run the agent loop. Returns the final research report.
+
+    on_event: optional callback(event_type, payload) for streaming progress.
+              Event types: 'tool_call', 'tool_result', 'note', 'thought', 'final', 'error'
+    """
     global notes_storage
     notes_storage = []
 
-    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    api_key = os.getenv("NVIDIA_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "Set NVIDIA_API_KEY in .env. Get a free key at https://build.nvidia.com/"
+        )
+
+    client = OpenAI(base_url=NVIDIA_BASE_URL, api_key=api_key)
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Research this topic deeply: {topic}"}
     ]
 
-    print(f"\n🔍 Starting research on: {topic}\n" + "=" * 60)
+    print(f"\n>> Starting research on: {topic}\n" + "=" * 60)
 
     for iteration in range(max_iterations):
         try:
@@ -208,10 +220,16 @@ def run_research_agent(topic: str, max_iterations: int = 15) -> str:
             )
         except Exception as e:
             err_str = str(e)
-            print(f"\n⚠️ API error: {err_str[:100]}")
-            if "tool_use_failed" in err_str or "400" in err_str:
-                # Groq had a bad tool call — add a recovery message and retry
-                messages.append({"role": "user", "content": "The last tool call failed. Please continue researching using valid tool calls, or write the final report if you have enough notes."})
+            print(f"\n!! API error: {err_str[:200]}")
+            if on_event:
+                on_event("error", {"message": err_str[:300]})
+
+            # Recovery: if it's a tool-format error, ask the model to retry without tools
+            if "tool_use_failed" in err_str or "400" in err_str or "Tool use" in err_str:
+                messages.append({
+                    "role": "user",
+                    "content": "The last call failed. Please continue, or write the final report if you have enough notes."
+                })
                 try:
                     response = client.chat.completions.create(
                         model=MODEL_NAME,
@@ -222,22 +240,19 @@ def run_research_agent(topic: str, max_iterations: int = 15) -> str:
                         temperature=0.7,
                     )
                 except Exception:
-                    response = client.chat.completions.create(
-                        model=MODEL_NAME,
-                        messages=messages,
-                        max_tokens=4096,
-                        temperature=0.7,
-                    )
+                    return f"Research failed: {err_str}"
             else:
-                raise
+                return f"Research failed: {err_str}"
 
         message = response.choices[0].message
         tool_calls = message.tool_calls or []
 
         if message.content:
-            print(f"\n💭 Agent: {message.content[:200]}")
+            print(f"\n>> Agent: {message.content[:200]}")
+            if on_event:
+                on_event("thought", {"text": message.content})
 
-        # Add assistant response to history
+        # Add assistant turn to history
         messages.append({
             "role": "assistant",
             "content": message.content,
@@ -251,23 +266,32 @@ def run_research_agent(topic: str, max_iterations: int = 15) -> str:
             ] if tool_calls else None
         })
 
-        # No tool calls → agent is done
+        # No tool calls = done
         if not tool_calls:
             final_text = message.content or ""
-            print(f"\n✅ Research complete after {iteration + 1} iterations")
-            print(f"📝 Notes collected: {len(notes_storage)}")
+            print(f"\n** Research complete after {iteration + 1} iterations")
+            print(f"** Notes collected: {len(notes_storage)}")
+            if on_event:
+                on_event("final", {"text": final_text})
             return final_text
 
-        # Execute tool calls
+        # Execute tools
         for tc in tool_calls:
             fn_name = tc.function.name
-            fn_args = json.loads(tc.function.arguments or "{}")
-            # Cap max_chars to stay within Groq free tier token limits
+            try:
+                fn_args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                fn_args = {}
+
+            # Cap args
             if "max_chars" in fn_args:
-                fn_args["max_chars"] = min(fn_args["max_chars"], 1500)
+                fn_args["max_chars"] = min(int(fn_args.get("max_chars") or 1500), 1500)
             if "max_results" in fn_args:
-                fn_args["max_results"] = min(fn_args["max_results"], 5)
-            print(f"\n🔧 Tool: {fn_name}({json.dumps({k: str(v)[:50] for k, v in fn_args.items()})})")
+                fn_args["max_results"] = min(int(fn_args.get("max_results") or 5), 5)
+
+            print(f"\n>> Tool: {fn_name}({json.dumps({k: str(v)[:50] for k, v in fn_args.items()})})")
+            if on_event:
+                on_event("tool_call", {"name": fn_name, "args": fn_args})
 
             if fn_name in TOOL_FUNCTIONS:
                 try:
@@ -278,20 +302,33 @@ def run_research_agent(topic: str, max_iterations: int = 15) -> str:
             else:
                 result_str = f"Unknown tool: {fn_name}"
 
+            if fn_name == "take_notes" and on_event:
+                on_event("note", {
+                    "source": fn_args.get("source", ""),
+                    "key_facts": fn_args.get("key_facts", []),
+                    "relevance": fn_args.get("relevance", ""),
+                })
+
+            if on_event:
+                on_event("tool_result", {"name": fn_name, "result": result_str[:300]})
+
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
                 "content": result_str
             })
 
-    return f"Research incomplete - hit iteration limit. Notes collected: {len(notes_storage)}"
+    msg = f"Research incomplete - hit iteration limit. Notes collected: {len(notes_storage)}"
+    if on_event:
+        on_event("final", {"text": msg})
+    return msg
 
 
 if __name__ == "__main__":
     import sys
-    if not os.getenv("GROQ_API_KEY"):
-        print("❌ Set GROQ_API_KEY environment variable first")
-        print("   Get a FREE key at: https://console.groq.com/")
+    if not os.getenv("NVIDIA_API_KEY"):
+        print("ERROR: Set NVIDIA_API_KEY environment variable first")
+        print("       Get a FREE key at: https://build.nvidia.com/")
         sys.exit(1)
 
     if len(sys.argv) < 2:
@@ -307,6 +344,6 @@ if __name__ == "__main__":
     print(report)
 
     filename = f"research_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-    with open(filename, "w") as f:
+    with open(filename, "w", encoding="utf-8") as f:
         f.write(report)
-    print(f"\n💾 Saved to {filename}")
+    print(f"\n** Saved to {filename}")
