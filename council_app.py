@@ -81,16 +81,18 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 </style>
 """, unsafe_allow_html=True)
 
-if not os.getenv("NVIDIA_API_KEY"):
-    try:
-        os.environ["NVIDIA_API_KEY"] = st.secrets["NVIDIA_API_KEY"]
-    except Exception:
-        pass
+for key_name in ("GEMINI_API_KEY", "NVIDIA_API_KEY"):
+    if not os.getenv(key_name):
+        try:
+            os.environ[key_name] = st.secrets[key_name]
+        except Exception:
+            pass
 
-if not os.getenv("NVIDIA_API_KEY"):
-    st.markdown('<div style="text-align:center;padding:3rem;color:#f87171;">⚠️ NVIDIA_API_KEY not set. '
-                'Add it to your .env file.<br><br>'
-                '<a href="https://build.nvidia.com/" style="color:#60a5fa;">Get a free key at build.nvidia.com</a></div>',
+if not (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("NVIDIA_API_KEY")):
+    st.markdown('<div style="text-align:center;padding:3rem;color:#f87171;">⚠️ No API key set. '
+                'Add GEMINI_API_KEY or NVIDIA_API_KEY to your .env file.<br><br>'
+                '<a href="https://aistudio.google.com/apikey" style="color:#60a5fa;">Get a free Gemini key</a> · '
+                '<a href="https://build.nvidia.com/" style="color:#60a5fa;">Get a free NVIDIA key</a></div>',
                 unsafe_allow_html=True)
     st.stop()
 

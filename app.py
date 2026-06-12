@@ -285,16 +285,15 @@ hr { border-color: #1f2937 !important; margin: 1.5rem 0 !important; }
 """, unsafe_allow_html=True)
 
 # ── API key ───────────────────────────────────────────────────────────────────
-api_key = os.getenv("GROQ_API_KEY")
-if not api_key:
-    try:
-        api_key = st.secrets["GROQ_API_KEY"]
-        os.environ["GROQ_API_KEY"] = api_key
-    except Exception:
-        pass
+for key_name in ("GEMINI_API_KEY", "NVIDIA_API_KEY"):
+    if not os.getenv(key_name):
+        try:
+            os.environ[key_name] = st.secrets[key_name]
+        except Exception:
+            pass
 
-if not api_key:
-    st.markdown('<div style="text-align:center;padding:3rem;color:#f87171;">⚠️ GROQ_API_KEY not set. Add it to your .env file.<br><br><a href="https://console.groq.com/" style="color:#60a5fa;">Get a free key at console.groq.com</a></div>', unsafe_allow_html=True)
+if not (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("NVIDIA_API_KEY")):
+    st.markdown('<div style="text-align:center;padding:3rem;color:#f87171;">⚠️ No API key set. Add GEMINI_API_KEY or NVIDIA_API_KEY to your .env file.<br><br><a href="https://aistudio.google.com/apikey" style="color:#60a5fa;">Get a free Gemini key</a> · <a href="https://build.nvidia.com/" style="color:#60a5fa;">Get a free NVIDIA key</a></div>', unsafe_allow_html=True)
     st.stop()
 
 from agent import run_research_agent, notes_storage

@@ -72,10 +72,17 @@ The verdict separates **points of consensus** (fact-checked claims only, with ci
 git clone https://github.com/yourname/research-agent
 cd research-agent
 pip install -r requirements.txt
-export GROQ_API_KEY="your-key-here"
 ```
 
-Get a **free** Groq API key at: https://console.groq.com/ (no credit card needed)
+Then create a `.env` file with ONE of these keys (both have free tiers):
+
+```
+GEMINI_API_KEY=your-key-here     # free at https://aistudio.google.com/apikey
+# or
+NVIDIA_API_KEY=your-key-here     # free at https://build.nvidia.com/
+```
+
+If both are set, Gemini is used. Override the model with `LLM_MODEL` (e.g. `LLM_MODEL=gemini-2.5-pro`).
 
 ## Usage
 
@@ -96,7 +103,7 @@ streamlit run app.py
 3. Connect your repo and pick `app.py` as the main file
 4. In Settings → Secrets, add:
    ```
-   GROQ_API_KEY = "your-key"
+   GEMINI_API_KEY = "your-key"
    ```
 5. Deploy. You get a public URL.
 

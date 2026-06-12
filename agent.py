@@ -33,9 +33,35 @@ except ImportError:
 import requests
 from bs4 import BeautifulSoup
 
-# NVIDIA NIM — OpenAI-compatible endpoint
+# Provider config — both expose OpenAI-compatible endpoints.
+# Set GEMINI_API_KEY (https://aistudio.google.com/apikey) or
+# NVIDIA_API_KEY (https://build.nvidia.com/) in .env.
+# Optionally override the model with LLM_MODEL.
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 MODEL_NAME = "meta/llama-3.3-70b-instruct"
+GEMINI_MODEL = "gemini-2.5-flash"
+
+
+def get_llm_config():
+    """Return (base_url, model, api_key) based on which key is set."""
+    override = os.getenv("LLM_MODEL")
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if gemini_key:
+        return GEMINI_BASE_URL, override or GEMINI_MODEL, gemini_key
+    nvidia_key = os.getenv("NVIDIA_API_KEY")
+    if nvidia_key:
+        return NVIDIA_BASE_URL, override or MODEL_NAME, nvidia_key
+    raise RuntimeError(
+        "No API key found. Set GEMINI_API_KEY (free at https://aistudio.google.com/apikey) "
+        "or NVIDIA_API_KEY (free at https://build.nvidia.com/) in .env"
+    )
+
+
+def make_client():
+    """Return (OpenAI client, model name) for the configured provider."""
+    base_url, model, api_key = get_llm_config()
+    return OpenAI(base_url=base_url, api_key=api_key), model
 
 
 # ============================================================
@@ -193,13 +219,7 @@ def run_research_agent(topic: str, max_iterations: int = 15, on_event=None) -> s
     global notes_storage
     notes_storage = []
 
-    api_key = os.getenv("NVIDIA_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "Set NVIDIA_API_KEY in .env. Get a free key at https://build.nvidia.com/"
-        )
-
-    client = OpenAI(base_url=NVIDIA_BASE_URL, api_key=api_key)
+    client, model_name = make_client()
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -211,7 +231,7 @@ def run_research_agent(topic: str, max_iterations: int = 15, on_event=None) -> s
     for iteration in range(max_iterations):
         try:
             response = client.chat.completions.create(
-                model=MODEL_NAME,
+                model=model_name,
                 messages=messages,
                 tools=TOOL_DECLARATIONS,
                 tool_choice="auto",
@@ -232,7 +252,7 @@ def run_research_agent(topic: str, max_iterations: int = 15, on_event=None) -> s
                 })
                 try:
                     response = client.chat.completions.create(
-                        model=MODEL_NAME,
+                        model=model_name,
                         messages=messages,
                         tools=TOOL_DECLARATIONS,
                         tool_choice="auto",
@@ -326,9 +346,10 @@ def run_research_agent(topic: str, max_iterations: int = 15, on_event=None) -> s
 
 if __name__ == "__main__":
     import sys
-    if not os.getenv("NVIDIA_API_KEY"):
-        print("ERROR: Set NVIDIA_API_KEY environment variable first")
-        print("       Get a FREE key at: https://build.nvidia.com/")
+    try:
+        get_llm_config()
+    except RuntimeError as e:
+        print(f"ERROR: {e}")
         sys.exit(1)
 
     if len(sys.argv) < 2:

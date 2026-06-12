@@ -24,7 +24,6 @@ Usage:
   python council.py "topic" --rounds 3
 """
 
-import os
 import re
 import json
 import argparse
@@ -32,10 +31,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
-from openai import OpenAI
-
-# Reuse the existing research tools (search + page reader)
-from agent import search_web, read_page, NVIDIA_BASE_URL, MODEL_NAME
+# Reuse the existing research tools (search + page reader) and provider config
+from agent import search_web, read_page, make_client
 
 DEBATE_TEMPERATURE = 0.4   # some rhetorical variety
 CHECKER_TEMPERATURE = 0.0  # deterministic verification
@@ -114,18 +111,10 @@ to rescue a claim. Respond with strict JSON, no markdown fences:
 # LLM helper
 # ============================================================
 
-def _client() -> OpenAI:
-    api_key = os.getenv("NVIDIA_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "Set NVIDIA_API_KEY in .env. Get a free key at https://build.nvidia.com/"
-        )
-    return OpenAI(base_url=NVIDIA_BASE_URL, api_key=api_key)
-
-
-def _chat(client: OpenAI, system: str, user: str, temperature: float) -> str:
+def _chat(llm, system: str, user: str, temperature: float) -> str:
+    client, model = llm
     response = client.chat.completions.create(
-        model=MODEL_NAME,
+        model=model,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -155,13 +144,13 @@ def _parse_json(text: str) -> dict:
 # PHASE 1 — Shared evidence base
 # ============================================================
 
-def gather_evidence(client: OpenAI, topic: str, on_event=None) -> list:
+def gather_evidence(llm, topic: str, on_event=None) -> list:
     """Search the web from several angles and build a citable evidence base."""
     if on_event:
         on_event("phase", {"name": "evidence", "detail": "Gathering shared evidence base"})
 
     plan = _chat(
-        client,
+        llm,
         "You generate diverse web search queries. Respond with strict JSON only.",
         f'Topic for an academic debate: "{topic}"\n'
         'Give 4 search queries covering: supporting evidence, criticism/counter-evidence, '
@@ -225,10 +214,10 @@ def format_evidence(evidence: list, full_text: bool = True) -> str:
 # PHASE 2 — Fact-checking
 # ============================================================
 
-def fact_check(client: OpenAI, evidence: list, speaker: str, statement: str) -> list:
+def fact_check(llm, evidence: list, speaker: str, statement: str) -> list:
     """Verify one statement against the evidence base. Returns a list of checks."""
     reply = _chat(
-        client,
+        llm,
         CHECKER_PROMPT,
         f"EVIDENCE BASE:\n{format_evidence(evidence)}\n\n"
         f"STATEMENT BY {speaker}:\n{statement}",
@@ -272,9 +261,9 @@ def run_council(topic: str, rounds: int = 2, on_event=None) -> dict:
       "verdict": str,
     }
     """
-    client = _client()
+    llm = make_client()
 
-    evidence = gather_evidence(client, topic, on_event=on_event)
+    evidence = gather_evidence(llm, topic, on_event=on_event)
     if not evidence:
         msg = "Could not gather any web evidence — debate aborted to avoid an ungrounded discussion."
         if on_event:
@@ -299,7 +288,7 @@ def run_council(topic: str, rounds: int = 2, on_event=None) -> dict:
     if on_event:
         on_event("phase", {"name": "debate", "detail": f"{rounds} round(s), {len(PROFESSORS)} professors"})
     opening = _chat(
-        client,
+        llm,
         MODERATOR_PROMPT,
         f'Open a council debate on: "{topic}".\n'
         f"Evidence available:\n{format_evidence(evidence, full_text=False)}\n\n"
@@ -325,8 +314,8 @@ def run_council(topic: str, rounds: int = 2, on_event=None) -> dict:
                 f"DEBATE SO FAR:\n{transcript_text()}\n\n"
                 f"It is Round {round_no}. Give your statement now."
             )
-            statement = _chat(client, system, user, temperature=DEBATE_TEMPERATURE)
-            checks = fact_check(client, evidence, prof["name"], statement)
+            statement = _chat(llm, system, user, temperature=DEBATE_TEMPERATURE)
+            checks = fact_check(llm, evidence, prof["name"], statement)
             entry = {"round": round_no, "speaker": prof["name"], "title": prof["title"],
                      "statement": statement, "checks": checks}
             transcript.append(entry)
@@ -337,7 +326,7 @@ def run_council(topic: str, rounds: int = 2, on_event=None) -> dict:
     if on_event:
         on_event("phase", {"name": "verdict", "detail": "Moderator synthesizing verdict"})
     verdict = _chat(
-        client,
+        llm,
         MODERATOR_PROMPT,
         f'TOPIC: "{topic}"\n\n'
         f"EVIDENCE BASE:\n{format_evidence(evidence, full_text=False)}\n\n"
