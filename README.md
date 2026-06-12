@@ -37,6 +37,35 @@ Give it a topic. It will:
 - **Structured notes over raw text**: enables better synthesis, prevents context bloat
 - **Reflection step**: makes the agent recognize gaps instead of stopping early
 
+## 🎓 Research Council — multi-agent debate mode
+
+A council of AI professors debates any proposition — **grounded in real web evidence, with an independent fact-checker**, so the debate can't drift into hallucination.
+
+**The council:**
+| Agent | Role |
+|---|---|
+| 🎙️ Moderator | Frames the question, keeps rounds on track, writes the final verdict |
+| 🟢 Prof. Advocate | Builds the strongest evidence-backed case in favor |
+| 🔴 Prof. Skeptic | Stress-tests claims, hunts for counter-evidence |
+| 🔵 Prof. Empiricist | Weighs source quality and ranks claims by evidence strength |
+| 🛡️ Fact-Checker | Verifies every statement against the evidence base, flags unsupported claims publicly |
+
+**Anti-hallucination design (3 layers):**
+1. **Grounding** — before the debate, a shared evidence base is gathered from the live web; every item gets an ID like `[E3]`
+2. **Mandatory citations** — professors may only assert facts that cite an evidence ID; gaps must be answered with "insufficient evidence", never filled from memory
+3. **Adversarial fact-checking** — after every statement an independent checker compares each claim against the actual source text; flags are injected back into the debate so the council self-corrects, and unverified claims are excluded from the verdict
+
+**Run it:**
+```bash
+# CLI
+python council.py "Is nuclear power essential for decarbonization?" --rounds 2
+
+# Web UI (live debate floor)
+streamlit run council_app.py
+```
+
+The verdict separates **points of consensus** (fact-checked claims only, with citations), **open disagreements**, **claims that did not survive fact-checking**, and an overall **confidence level**.
+
 ## Setup
 
 ```bash
